@@ -97,6 +97,13 @@ pub enum Feasibility {
     },
 }
 
+/// API request body for plan generation (`POST /api/v1/plans`, ADR 0011).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PlanRequest {
+    pub rower_id: RowerId,
+    pub goal: WorkoutGoal,
+}
+
 /// A generated, pushable workout plan.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WorkoutPlan {

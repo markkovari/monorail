@@ -36,10 +36,12 @@ pub enum StreamError {
     Serialize(#[from] serde_json::Error),
 }
 
-/// Connect to NATS and return a JetStream context.
-pub async fn connect(url: &str) -> Result<Context, StreamError> {
+/// Connect to NATS, returning the core client (command plane, ADR 0010) and
+/// a JetStream context over it (telemetry, ADR 0004).
+pub async fn connect(url: &str) -> Result<(async_nats::Client, Context), StreamError> {
     let client = async_nats::connect(url).await?;
-    Ok(async_nats::jetstream::new(client))
+    let context = async_nats::jetstream::new(client.clone());
+    Ok((client, context))
 }
 
 /// Create or update the durable telemetry stream (ADR 0004): telemetry +

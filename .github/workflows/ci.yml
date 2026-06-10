@@ -13,6 +13,14 @@ jobs:
   # fmt + clippy + tests over default-members (UI excluded, matches local builds)
   check:
     runs-on: ubuntu-latest
+    env:
+      # sccache caches per object/crate (content-keyed), so DuckDB's bundled
+      # C++ survives Cargo.lock changes that invalidate rust-cache.
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: sccache
+      CC: sccache cc
+      CXX: sccache c++
+      CARGO_INCREMENTAL: "0" # sccache cannot cache incremental artifacts
     steps:
       - uses: actions/checkout@v4
       # hidapi's build script needs libudev headers on Linux
@@ -20,10 +28,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - uses: mozilla-actions/sccache-action@v0.0.9
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
+      - run: sccache --show-stats
 
   # Leptos UI must keep compiling for wasm32 (ADR 0011)
   ui:

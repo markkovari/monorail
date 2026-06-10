@@ -57,7 +57,7 @@ async fn main() -> anyhow::Result<()> {
     // TODO wiring still to land:
     // - command-plane client for plan pushes (ADR 0010)
     let store = Arc::new(Mutex::new(monorail_store::Store::open(&config.db_path)?));
-    let js = connect(&config.nats_url).await?;
+    let (client, js) = connect(&config.nats_url).await?;
     ensure_stream(&js).await?;
 
     let (live, _) = broadcast::channel(256);
@@ -66,7 +66,7 @@ async fn main() -> anyhow::Result<()> {
     let consume =
         tokio::spawn(async move { consumer::run(&js, consumer_store, consumer_live).await });
 
-    let mut app = monorail_api::router(AppState::new(live, store));
+    let mut app = monorail_api::router(AppState::new(live, store, Some(client)));
     if config.ui_dist.is_dir() {
         tracing::info!(dist = %config.ui_dist.display(), "serving UI bundle");
         app = app.fallback_service(ServeDir::new(&config.ui_dist));
