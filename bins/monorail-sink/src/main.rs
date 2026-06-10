@@ -5,9 +5,13 @@
 mod consumer;
 
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 use clap::Parser;
+use monorail_api::AppState;
 use monorail_stream::jetstream::{connect, ensure_stream};
+use tokio::sync::broadcast;
+use tower_http::services::ServeDir;
 
 #[derive(Debug, Parser)]
 #[command(version, about)]
@@ -27,6 +31,11 @@ struct Config {
     /// DuckDB database file.
     #[arg(long, env = "MONORAIL_DB_PATH", default_value = "monorail.duckdb")]
     db_path: PathBuf,
+
+    /// Directory with the built Leptos UI bundle (`trunk build`); served at
+    /// `/` when it exists.
+    #[arg(long, env = "MONORAIL_UI_DIST", default_value = "web/monorail-ui/dist")]
+    ui_dist: PathBuf,
 }
 
 #[tokio::main]
@@ -46,16 +55,22 @@ async fn main() -> anyhow::Result<()> {
     );
 
     // TODO wiring still to land:
-    // - open store (migrations), ingest from the consumer (ADR 0006)
-    // - SSE fan-out broadcast channel from the consumer (ADR 0011)
     // - command-plane client for plan pushes (ADR 0010)
-    // - serve UI bundle as static files next to the API
+    let store = Arc::new(Mutex::new(monorail_store::Store::open(&config.db_path)?));
     let js = connect(&config.nats_url).await?;
     ensure_stream(&js).await?;
 
-    let consume = tokio::spawn(async move { consumer::run(&js).await });
+    let (live, _) = broadcast::channel(256);
+    let consumer_store = Arc::clone(&store);
+    let consumer_live = live.clone();
+    let consume =
+        tokio::spawn(async move { consumer::run(&js, consumer_store, consumer_live).await });
 
-    let app = monorail_api::router();
+    let mut app = monorail_api::router(AppState::new(live, store));
+    if config.ui_dist.is_dir() {
+        tracing::info!(dist = %config.ui_dist.display(), "serving UI bundle");
+        app = app.fallback_service(ServeDir::new(&config.ui_dist));
+    }
     let listener = tokio::net::TcpListener::bind(&config.listen).await?;
     tracing::info!("listening on http://{}", listener.local_addr()?);
 
