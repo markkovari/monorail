@@ -1,0 +1,23 @@
+{
+  "command": "program_workout",
+  "plan": {
+    "plan_id": "00000000-0000-4000-8000-00000000000a",
+    "rower_id": "erg-1",
+    "goal": {
+      "zone": "ut2",
+      "extent": { "time": { "seconds": 2400 } },
+      "target_split_s": 120.0,
+      "target_spm": 20,
+      "hr_cap_bpm": null
+    },
+    "segments": [
+      {
+        "extent": { "time": { "seconds": 2400 } },
+        "split_band": { "low": 118.0, "high": 122.0 },
+        "spm_band": { "low": 19.0, "high": 21.0 },
+        "intent": "core"
+      }
+    ],
+    "feasibility": { "feasibility": "unchecked" }
+  }
+}

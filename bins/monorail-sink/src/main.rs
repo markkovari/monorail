@@ -14,7 +14,11 @@ struct Config {
     listen: String,
 
     /// NATS server URL.
-    #[arg(long, env = "MONORAIL_NATS_URL", default_value = "nats://localhost:4222")]
+    #[arg(
+        long,
+        env = "MONORAIL_NATS_URL",
+        default_value = "nats://localhost:4222"
+    )]
     nats_url: String,
 
     /// DuckDB database file.
@@ -26,8 +30,7 @@ struct Config {
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
 

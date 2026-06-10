@@ -34,3 +34,17 @@ cd web/monorail-ui && trunk serve
 # Pi binary (requires cross; 64-bit Raspberry Pi OS on the Pi — ADR 0008)
 cross build --release -p monorail-rower --target aarch64-unknown-linux-gnu
 ```
+
+## Testing
+
+- Unit tests live inline in `#[cfg(test)] mod tests` next to the code.
+- Fixture/cross-module tests live in each crate's `tests/` directory.
+- Pure transforms (CSAFE framing, plan generation) also get `proptest`
+  property tests (`crates/monorail-pm5/tests/`, `crates/monorail-coach/tests/`).
+- `crates/monorail-core/tests/fixtures/*.json` are the wire-schema record
+  (ADR 0005): if `wire_fixtures` tests fail, the schema changed — fix the
+  regression or consciously bump `WIRE_VERSION` and update the fixture.
+
+CI (`.github/workflows/ci.yml`) gates on fmt, clippy `-D warnings`, tests,
+a wasm32 check of the UI, and a guard that keeps DuckDB out of the Pi
+binary's dependency tree; pushes to `main` also cross-compile the Pi binary.

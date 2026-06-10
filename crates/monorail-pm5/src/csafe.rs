@@ -112,7 +112,10 @@ mod tests {
     #[test]
     fn get_status_golden_vector() {
         // Single-command frame: checksum of [0x80] is 0x80.
-        assert_eq!(build_frame(&[CSAFE_GETSTATUS_CMD]), vec![0xF1, 0x80, 0x80, 0xF2]);
+        assert_eq!(
+            build_frame(&[CSAFE_GETSTATUS_CMD]),
+            vec![0xF1, 0x80, 0x80, 0xF2]
+        );
     }
 
     #[test]
@@ -168,6 +171,9 @@ mod tests {
             parse_frame(&[0xF1, 0x80, 0x80, 0x00]),
             Err(FrameError::BadStop(0x00))
         );
-        assert_eq!(parse_frame(&[0xF1, 0xF3, 0x07, 0xF2]), Err(FrameError::BadStuffing(0x07)));
+        assert_eq!(
+            parse_frame(&[0xF1, 0xF3, 0x07, 0xF2]),
+            Err(FrameError::BadStuffing(0x07))
+        );
     }
 }

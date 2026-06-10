@@ -13,3 +13,6 @@ monorail-predict = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 serde = { workspace = true }
 thiserror = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }

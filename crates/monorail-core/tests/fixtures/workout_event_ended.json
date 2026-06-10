@@ -1,0 +1,13 @@
+{
+  "event": "ended",
+  "ts": "2026-06-10T07:10:00Z",
+  "summary": {
+    "duration_s": 2400.0,
+    "distance_m": 10000.0,
+    "avg_split_s_per_500m": 120.0,
+    "avg_stroke_rate_spm": 20.0,
+    "avg_power_watts": 185.0,
+    "stroke_count": 800,
+    "avg_heart_rate_bpm": null
+  }
+}

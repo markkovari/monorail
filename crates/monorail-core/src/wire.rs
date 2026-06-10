@@ -121,9 +121,6 @@ mod tests {
     #[test]
     fn dedup_id_is_session_and_seq() {
         let env = sample_envelope();
-        assert_eq!(
-            env.dedup_id(),
-            format!("{}-42", env.session_id)
-        );
+        assert_eq!(env.dedup_id(), format!("{}-42", env.session_id));
     }
 }

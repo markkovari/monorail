@@ -1,0 +1,32 @@
+{
+  "plan_id": "00000000-0000-4000-8000-00000000000a",
+  "rower_id": "erg-1",
+  "goal": {
+    "zone": "ut2",
+    "extent": { "time": { "seconds": 2400 } },
+    "target_split_s": 120.0,
+    "target_spm": 20,
+    "hr_cap_bpm": null
+  },
+  "segments": [
+    {
+      "extent": { "time": { "seconds": 600 } },
+      "split_band": { "low": 123.0, "high": 127.0 },
+      "spm_band": { "low": 17.0, "high": 19.0 },
+      "intent": "build"
+    },
+    {
+      "extent": { "time": { "seconds": 1200 } },
+      "split_band": { "low": 118.0, "high": 122.0 },
+      "spm_band": { "low": 19.0, "high": 21.0 },
+      "intent": "core"
+    },
+    {
+      "extent": { "time": { "seconds": 600 } },
+      "split_band": { "low": 116.0, "high": 120.0 },
+      "spm_band": { "low": 21.0, "high": 23.0 },
+      "intent": "push"
+    }
+  ],
+  "feasibility": { "feasibility": "ok" }
+}

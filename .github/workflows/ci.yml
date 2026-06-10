@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # fmt + clippy + tests over default-members (UI excluded, matches local builds)
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test
+
+  # Leptos UI must keep compiling for wasm32 (ADR 0011)
+  ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy -p monorail-ui --target wasm32-unknown-unknown -- -D warnings
+
+  # ADR 0002/0008: the Pi binary's dependency tree must stay DuckDB-free
+  pi-dep-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: forbid duckdb in monorail-rower's tree
+        run: |
+          if cargo tree -p monorail-rower -i duckdb 2>/dev/null; then
+            echo "::error::monorail-rower depends on duckdb — forbidden by ADR 0002/0008"
+            exit 1
+          fi
+          echo "monorail-rower is duckdb-free"
+
+  # Pi binary cross-compiles for aarch64 (ADR 0008); slow, so main + manual only
+  cross-build:
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cross
+      - run: cross build --release -p monorail-rower --target aarch64-unknown-linux-gnu
+      - uses: actions/upload-artifact@v4
+        with:
+          name: monorail-rower-aarch64
+          path: target/aarch64-unknown-linux-gnu/release/monorail-rower

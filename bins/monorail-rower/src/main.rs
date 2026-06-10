@@ -13,7 +13,11 @@ use monorail_core::RowerId;
 #[command(version, about)]
 struct Config {
     /// NATS server URL.
-    #[arg(long, env = "MONORAIL_NATS_URL", default_value = "nats://localhost:4222")]
+    #[arg(
+        long,
+        env = "MONORAIL_NATS_URL",
+        default_value = "nats://localhost:4222"
+    )]
     nats_url: String,
 
     /// Identifier for this erg/Pi pairing (lowercase, digits, dashes).
@@ -29,8 +33,7 @@ struct Config {
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
 

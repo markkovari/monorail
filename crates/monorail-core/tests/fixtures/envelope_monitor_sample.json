@@ -1,0 +1,15 @@
+{
+  "v": 1,
+  "session_id": "00000000-0000-4000-8000-000000000001",
+  "seq": 42,
+  "ts": "2026-06-10T06:30:00Z",
+  "payload": {
+    "elapsed_s": 90.5,
+    "distance_m": 412.0,
+    "split_s_per_500m": 120.5,
+    "stroke_rate_spm": 20.0,
+    "power_watts": 185.0,
+    "heart_rate_bpm": 142,
+    "phase": "drive"
+  }
+}

@@ -44,8 +44,14 @@ mod tests {
 
     #[test]
     fn subjects_match_adr_hierarchy() {
-        assert_eq!(telemetry_stroke(&rower()), "monorail.telemetry.erg-1.stroke");
-        assert_eq!(telemetry_monitor(&rower()), "monorail.telemetry.erg-1.monitor");
+        assert_eq!(
+            telemetry_stroke(&rower()),
+            "monorail.telemetry.erg-1.stroke"
+        );
+        assert_eq!(
+            telemetry_monitor(&rower()),
+            "monorail.telemetry.erg-1.monitor"
+        );
         assert_eq!(workout_event(&rower()), "monorail.workout.erg-1.event");
         assert_eq!(command_plan(&rower()), "monorail.command.erg-1.plan");
         assert_eq!(command_control(&rower()), "monorail.command.erg-1.control");
