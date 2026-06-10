@@ -13,6 +13,9 @@ monorail-store = { workspace = true }
 monorail-predict = { workspace = true }
 monorail-coach = { workspace = true }
 monorail-api = { workspace = true }
+async-nats = { workspace = true }
+futures = { workspace = true }
+serde_json = { workspace = true }
 tokio = { workspace = true }
 axum = { workspace = true }
 clap = { workspace = true }

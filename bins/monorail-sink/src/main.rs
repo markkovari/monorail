@@ -2,9 +2,12 @@
 //! JetStream into DuckDB, runs predictions and plan generation, pushes plans
 //! over the command plane, and serves the HTTP API + Leptos UI bundle.
 
+mod consumer;
+
 use std::path::PathBuf;
 
 use clap::Parser;
+use monorail_stream::jetstream::{connect, ensure_stream};
 
 #[derive(Debug, Parser)]
 #[command(version, about)]
@@ -42,15 +45,24 @@ async fn main() -> anyhow::Result<()> {
         "monorail-sink starting"
     );
 
-    // TODO wiring order:
-    // 1. open store (migrations) — single read-write connection (ADR 0006)
-    // 2. JetStream durable pull consumer -> idempotent ingest
-    // 3. SSE fan-out broadcast channel from the consumer
-    // 4. command-plane client for plan pushes (ADR 0010)
-    // 5. serve UI bundle as static files next to the API
+    // TODO wiring still to land:
+    // - open store (migrations), ingest from the consumer (ADR 0006)
+    // - SSE fan-out broadcast channel from the consumer (ADR 0011)
+    // - command-plane client for plan pushes (ADR 0010)
+    // - serve UI bundle as static files next to the API
+    let js = connect(&config.nats_url).await?;
+    ensure_stream(&js).await?;
+
+    let consume = tokio::spawn(async move { consumer::run(&js).await });
+
     let app = monorail_api::router();
     let listener = tokio::net::TcpListener::bind(&config.listen).await?;
     tracing::info!("listening on http://{}", listener.local_addr()?);
-    axum::serve(listener, app).await?;
+
+    tokio::select! {
+        result = axum::serve(listener, app) => result?,
+        result = consume => result??,
+        _ = tokio::signal::ctrl_c() => tracing::info!("shutting down"),
+    }
     Ok(())
 }

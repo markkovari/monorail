@@ -1574,6 +1574,7 @@ dependencies = [
  "monorail-core",
  "monorail-pm5",
  "monorail-stream",
+ "serde",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -1585,14 +1586,17 @@ name = "monorail-sink"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-nats",
  "axum",
  "clap",
+ "futures",
  "monorail-api",
  "monorail-coach",
  "monorail-core",
  "monorail-predict",
  "monorail-store",
  "monorail-stream",
+ "serde_json",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -1613,6 +1617,7 @@ version = "0.1.0"
 dependencies = [
  "async-nats",
  "monorail-core",
+ "serde",
  "serde_json",
  "thiserror 2.0.18",
  "tracing",
