@@ -2125,19 +2125,23 @@ dependencies = [
 name = "monorail-api"
 version = "0.1.0"
 dependencies = [
+ "async-nats",
  "axum",
+ "chrono",
  "futures",
  "http-body-util",
  "monorail-coach",
  "monorail-core",
  "monorail-predict",
  "monorail-store",
+ "monorail-stream",
  "serde",
  "serde_json",
  "tokio",
  "tokio-stream",
  "tower",
  "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -2190,12 +2194,15 @@ name = "monorail-rower"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-nats",
  "chrono",
  "clap",
+ "futures",
  "monorail-core",
  "monorail-pm5",
  "monorail-stream",
  "serde",
+ "serde_json",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -2247,6 +2254,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.18",
+ "tokio",
  "tracing",
 ]
 

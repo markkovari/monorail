@@ -3,6 +3,7 @@
 //! Subjects are built here and nowhere else, so the hierarchy has a single
 //! point of truth.
 
+pub mod commands;
 pub mod jetstream;
 pub mod subjects;
 

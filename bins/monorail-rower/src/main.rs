@@ -7,6 +7,7 @@
 //! This binary must never transitively depend on DuckDB (ADR 0002); CI
 //! enforces it (`cargo tree -p monorail-rower -i duckdb` must fail).
 
+mod command;
 mod source;
 
 use chrono::Utc;
@@ -53,6 +54,11 @@ struct Config {
     /// Fake-source target stroke rate (strokes per minute).
     #[arg(long, env = "MONORAIL_FAKE_SPM", default_value_t = 20.0)]
     fake_spm: f32,
+
+    /// Wait for a pushed plan (ADR 0010) and run the workout with its
+    /// targets instead of starting immediately.
+    #[arg(long, env = "MONORAIL_WAIT_FOR_PLAN", default_value_t = false)]
+    wait_for_plan: bool,
 }
 
 /// Stamps envelopes with the session id and a monotonic sequence.
@@ -101,24 +107,44 @@ async fn main() -> anyhow::Result<()> {
         "monorail-rower starting (fake PM5 source)"
     );
 
-    let js = connect(&config.nats_url).await?;
+    let (client, js) = connect(&config.nats_url).await?;
     ensure_stream(&js).await?;
-    let publisher = TelemetryPublisher::new(js, rower_id);
 
+    // A pushed plan overrides the fake source's targets and duration, and is
+    // stamped into the session's events so telemetry joins back to it.
+    let (split_s, spm, duration_s, plan_id) = if config.wait_for_plan {
+        let applied = command::wait_for_plan(&client, &rower_id).await?;
+        (
+            applied.target_split_s,
+            applied.target_spm,
+            applied.duration_s,
+            Some(applied.plan.plan_id),
+        )
+    } else {
+        (
+            config.fake_split_s,
+            config.fake_spm,
+            config.fake_duration_s,
+            None,
+        )
+    };
+
+    let publisher = TelemetryPublisher::new(js, rower_id);
     let mut session = Session::new();
-    let mut fake = FakePm5::new(config.fake_split_s, config.fake_spm);
+    let mut fake = FakePm5::new(split_s, spm);
     let dt_s = 1.0 / config.poll_hz as f64;
     let mut ticker = tokio::time::interval(std::time::Duration::from_secs_f64(dt_s));
 
-    tracing::info!(session_id = %session.id, "workout started");
+    tracing::info!(session_id = %session.id, ?plan_id, split_s, spm, "workout started");
     publisher
         .publish_workout_event(&session.envelope(WorkoutEvent::Started {
             ts: Utc::now(),
-            plan_id: None,
+            plan_id,
         }))
         .await?;
 
-    let total_ticks = (config.fake_duration_s as f64 * config.poll_hz as f64) as u64;
+    let total_ticks = duration_s as f64 * config.poll_hz as f64;
+    let total_ticks = total_ticks as u64;
     for _ in 0..total_ticks {
         tokio::select! {
             _ = ticker.tick() => {}
