@@ -1,0 +1,13 @@
+[package]
+name = "monorail-ui"
+description = "Leptos CSR dashboard (ADR 0011); built with trunk, served by monorail-sink"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# Depends on monorail-core ONLY (plus Leptos) — never store/predict/coach.
+[dependencies]
+monorail-core = { workspace = true }
+leptos = { workspace = true }
+console_error_panic_hook = { workspace = true }

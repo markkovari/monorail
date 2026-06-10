@@ -1,0 +1,65 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/monorail-core",
+    "crates/monorail-pm5",
+    "crates/monorail-stream",
+    "crates/monorail-store",
+    "crates/monorail-predict",
+    "crates/monorail-coach",
+    "crates/monorail-api",
+    "bins/monorail-rower",
+    "bins/monorail-sink",
+    "web/monorail-ui",
+]
+# UI targets wasm32 and is built with trunk; keep it out of plain `cargo build`.
+default-members = [
+    "crates/monorail-core",
+    "crates/monorail-pm5",
+    "crates/monorail-stream",
+    "crates/monorail-store",
+    "crates/monorail-predict",
+    "crates/monorail-coach",
+    "crates/monorail-api",
+    "bins/monorail-rower",
+    "bins/monorail-sink",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/markkovari/monorail"
+
+[workspace.dependencies]
+# internal
+monorail-core = { path = "crates/monorail-core" }
+monorail-pm5 = { path = "crates/monorail-pm5" }
+monorail-stream = { path = "crates/monorail-stream" }
+monorail-store = { path = "crates/monorail-store" }
+monorail-predict = { path = "crates/monorail-predict" }
+monorail-coach = { path = "crates/monorail-coach" }
+monorail-api = { path = "crates/monorail-api" }
+
+# external
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+anyhow = "1"
+uuid = { version = "1", features = ["serde"] }
+# no default features: keeps `clock` out of the wasm build (UI pulls core);
+# producers that need `now()` enable `clock` themselves.
+chrono = { version = "0.4", default-features = false, features = ["serde"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "time", "sync"] }
+async-nats = "0.38"
+axum = "0.8"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+clap = { version = "4", features = ["derive", "env"] }
+hidapi = "2"
+leptos = { version = "0.7", features = ["csr"] }
+console_error_panic_hook = "0.1"
+
+[profile.release]
+lto = "thin"
+strip = true

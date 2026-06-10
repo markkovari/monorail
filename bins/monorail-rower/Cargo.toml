@@ -1,0 +1,19 @@
+[package]
+name = "monorail-rower"
+description = "Pi Zero 2 W publisher: PM5 polling -> NATS JetStream, command handler"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+monorail-core = { workspace = true }
+monorail-pm5 = { workspace = true }
+monorail-stream = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+chrono = { workspace = true, features = ["clock"] }
+tokio = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

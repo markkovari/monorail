@@ -1,0 +1,14 @@
+[package]
+name = "monorail-predict"
+description = "Classical prediction models over aggregated rowing features"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+monorail-core = { workspace = true }
+monorail-store = { workspace = true }
+serde = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }

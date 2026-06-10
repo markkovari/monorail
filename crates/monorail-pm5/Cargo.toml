@@ -1,0 +1,13 @@
+[package]
+name = "monorail-pm5"
+description = "Concept2 PM5 over USB HID: CSAFE protocol layer (pure) + hidapi transport"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+monorail-core = { workspace = true }
+thiserror = { workspace = true }
+hidapi = { workspace = true }
+tracing = { workspace = true }

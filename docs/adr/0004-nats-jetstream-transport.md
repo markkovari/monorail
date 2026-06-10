@@ -43,7 +43,9 @@ client (`async-nats`).
   monorail.workout.<rower_id>.event        # start/end/interval boundaries, summaries
   ```
 
-- One stream `MONORAIL` capturing `monorail.>`, file storage, `limits`
+- One stream `MONORAIL` capturing `monorail.telemetry.>` and
+  `monorail.workout.>` (deliberately not `monorail.>`: the command-plane
+  subjects of ADR 0010 must stay un-persisted), file storage, `limits`
   retention with generous age/size caps — DuckDB is the system of record
   (ADR 0006); JetStream is the durable buffer and replay source.
 - Publisher behavior on the Pi:

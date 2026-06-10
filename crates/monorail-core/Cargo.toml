@@ -1,0 +1,15 @@
+[package]
+name = "monorail-core"
+description = "Domain and wire types shared by every monorail component (no I/O dependencies)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

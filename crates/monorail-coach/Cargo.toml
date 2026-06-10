@@ -1,0 +1,15 @@
+[package]
+name = "monorail-coach"
+description = "Goal-driven workout plan generation, templates, and compliance scoring"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+monorail-core = { workspace = true }
+monorail-store = { workspace = true }
+monorail-predict = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+serde = { workspace = true }
+thiserror = { workspace = true }

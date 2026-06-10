@@ -1,0 +1,21 @@
+[package]
+name = "monorail-sink"
+description = "Aggregation host: JetStream consumer -> DuckDB, predictions, coach, API + UI"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+monorail-core = { workspace = true }
+monorail-stream = { workspace = true }
+monorail-store = { workspace = true }
+monorail-predict = { workspace = true }
+monorail-coach = { workspace = true }
+monorail-api = { workspace = true }
+tokio = { workspace = true }
+axum = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
