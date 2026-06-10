@@ -92,7 +92,9 @@ pub enum Feasibility {
     Unchecked,
     Ok,
     /// Goal kept as requested but flagged as beyond predicted capability.
-    Warning { reason: String },
+    Warning {
+        reason: String,
+    },
 }
 
 /// A generated, pushable workout plan.

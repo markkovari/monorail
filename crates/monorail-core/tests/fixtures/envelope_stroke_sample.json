@@ -1,0 +1,16 @@
+{
+  "v": 1,
+  "session_id": "00000000-0000-4000-8000-000000000001",
+  "seq": 43,
+  "ts": "2026-06-10T06:30:01Z",
+  "payload": {
+    "stroke_number": 18,
+    "drive_time_ms": 800,
+    "recovery_time_ms": 2200,
+    "stroke_rate_spm": 20.0,
+    "power_watts": 190.0,
+    "split_s_per_500m": 120.0,
+    "distance_m": 415.5,
+    "drive_length_m": 1.5
+  }
+}

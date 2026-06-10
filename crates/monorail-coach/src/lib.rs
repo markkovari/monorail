@@ -137,7 +137,11 @@ mod tests {
         let intents: Vec<_> = plan.segments.iter().map(|s| s.intent).collect();
         assert_eq!(
             intents,
-            vec![SegmentIntent::Build, SegmentIntent::Core, SegmentIntent::Push]
+            vec![
+                SegmentIntent::Build,
+                SegmentIntent::Core,
+                SegmentIntent::Push
+            ]
         );
         // Build eases off the target, push goes beyond it.
         assert!(plan.segments[0].split_band.low > plan.segments[1].split_band.low);
@@ -148,6 +152,40 @@ mod tests {
     impl FeasibilityJudge for FixedJudge {
         fn sustainable_split_s(&self, _duration_s: f64) -> Option<f64> {
             Some(self.0)
+        }
+    }
+
+    /// Records the duration the generator asked about.
+    struct RecordingJudge {
+        asked_duration_s: std::cell::Cell<f64>,
+    }
+    impl FeasibilityJudge for RecordingJudge {
+        fn sustainable_split_s(&self, duration_s: f64) -> Option<f64> {
+            self.asked_duration_s.set(duration_s);
+            Some(0.0) // never sustainable; value irrelevant here
+        }
+    }
+
+    /// Judge with no opinion (e.g. not enough history to fit a model).
+    struct SilentJudge;
+    impl FeasibilityJudge for SilentJudge {
+        fn sustainable_split_s(&self, _duration_s: f64) -> Option<f64> {
+            None
+        }
+    }
+
+    fn assert_bands_well_formed(plan: &WorkoutPlan) {
+        for segment in &plan.segments {
+            assert!(
+                segment.split_band.low <= segment.split_band.high,
+                "split band inverted: {:?}",
+                segment.split_band
+            );
+            assert!(
+                segment.spm_band.low <= segment.spm_band.high,
+                "spm band inverted: {:?}",
+                segment.spm_band
+            );
         }
     }
 
@@ -164,5 +202,95 @@ mod tests {
     fn sustainable_goal_is_ok() {
         let plan = generate_plan(rower(), ut2_goal(), Some(&FixedJudge(115.0)));
         assert_eq!(plan.feasibility, Feasibility::Ok);
+    }
+
+    #[test]
+    fn split_exactly_at_sustainable_is_ok() {
+        // Boundary of the >= comparison: equal means feasible.
+        let plan = generate_plan(rower(), ut2_goal(), Some(&FixedJudge(120.0)));
+        assert_eq!(plan.feasibility, Feasibility::Ok);
+    }
+
+    #[test]
+    fn judge_without_opinion_leaves_plan_unchecked() {
+        let plan = generate_plan(rower(), ut2_goal(), Some(&SilentJudge));
+        assert_eq!(plan.feasibility, Feasibility::Unchecked);
+    }
+
+    #[test]
+    fn warning_message_names_both_splits() {
+        let plan = generate_plan(rower(), ut2_goal(), Some(&FixedJudge(125.0)));
+        let Feasibility::Warning { reason } = &plan.feasibility else {
+            panic!("expected warning, got {:?}", plan.feasibility);
+        };
+        assert!(reason.contains("120.0"), "target split missing: {reason}");
+        assert!(
+            reason.contains("125.0"),
+            "sustainable split missing: {reason}"
+        );
+    }
+
+    #[test]
+    fn odd_duration_segments_sum_exactly() {
+        // 41 minutes: total/4 truncates, core absorbs the remainder.
+        let goal = WorkoutGoal {
+            extent: Extent::Time { seconds: 41 * 60 },
+            ..ut2_goal()
+        };
+        let plan = generate_plan(rower(), goal, None);
+        assert_eq!(plan.total_seconds(), Some(41 * 60));
+        assert_bands_well_formed(&plan);
+    }
+
+    #[test]
+    fn degenerate_durations_do_not_panic() {
+        for seconds in [0, 1, 2, 3] {
+            let goal = WorkoutGoal {
+                extent: Extent::Time { seconds },
+                ..ut2_goal()
+            };
+            let plan = generate_plan(rower(), goal, None);
+            assert_eq!(plan.total_seconds(), Some(seconds));
+            assert_bands_well_formed(&plan);
+        }
+    }
+
+    #[test]
+    fn distance_goal_yields_single_core_segment_with_goal_extent() {
+        let goal = WorkoutGoal {
+            extent: Extent::Distance { meters: 10_000 },
+            ..ut2_goal()
+        };
+        let plan = generate_plan(rower(), goal.clone(), None);
+        assert_eq!(plan.segments.len(), 1);
+        let segment = &plan.segments[0];
+        assert_eq!(segment.intent, SegmentIntent::Core);
+        assert_eq!(segment.extent, goal.extent);
+        assert!(segment.split_band.contains(goal.target_split_s));
+        assert!(segment.spm_band.contains(goal.target_spm as f32));
+        assert_bands_well_formed(&plan);
+    }
+
+    #[test]
+    fn time_goal_feasibility_judged_over_goal_duration() {
+        let judge = RecordingJudge {
+            asked_duration_s: std::cell::Cell::new(f64::NAN),
+        };
+        generate_plan(rower(), ut2_goal(), Some(&judge));
+        assert_eq!(judge.asked_duration_s.get(), 2400.0);
+    }
+
+    #[test]
+    fn distance_goal_feasibility_uses_pace_estimated_duration() {
+        let judge = RecordingJudge {
+            asked_duration_s: std::cell::Cell::new(f64::NAN),
+        };
+        let goal = WorkoutGoal {
+            extent: Extent::Distance { meters: 10_000 },
+            ..ut2_goal()
+        };
+        generate_plan(rower(), goal, Some(&judge));
+        // 10000 m / 500 m * 120 s = 2400 s
+        assert_eq!(judge.asked_duration_s.get(), 2400.0);
     }
 }

@@ -61,4 +61,18 @@ mod tests {
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["status"], "ok");
     }
+
+    #[tokio::test]
+    async fn unknown_route_is_404() {
+        let response = router()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/nope")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
 }

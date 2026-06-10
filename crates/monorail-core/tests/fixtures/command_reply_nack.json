@@ -1,0 +1,5 @@
+{
+  "result": "nack",
+  "reason": "plan_does_not_fit",
+  "detail": "plan needs 12 intervals, PM5 caps below that"
+}
