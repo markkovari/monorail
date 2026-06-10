@@ -1,0 +1,9 @@
+# RuVector local intelligence state
+ruvector.db
+.ruvector/
+
+# Rust
+target/
+
+# Leptos/trunk build output
+web/monorail-ui/dist/
