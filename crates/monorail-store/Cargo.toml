@@ -8,7 +8,12 @@ repository.workspace = true
 
 [dependencies]
 monorail-core = { workspace = true }
+duckdb = { workspace = true }
+chrono = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
-# NOTE: the `duckdb` crate (bundled) lands with the first schema/ingest
-# implementation — deferred so scaffold builds stay fast (ADR 0006).
+
+[dev-dependencies]
+uuid = { workspace = true }
