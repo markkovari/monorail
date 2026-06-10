@@ -10,9 +10,12 @@ mod migrations;
 
 use std::path::Path;
 
-use duckdb::{params, Connection};
+use chrono::{DateTime, Utc};
+use duckdb::{params, Connection, OptionalExt};
+use monorail_core::plan::WorkoutPlan;
 use monorail_core::telemetry::{MonitorSample, StrokeSample, WorkoutEvent};
 use monorail_core::wire::Envelope;
+use monorail_core::PlanId;
 use thiserror::Error;
 
 pub use migrations::MIGRATIONS;
@@ -29,6 +32,15 @@ pub enum StoreError {
 /// or behind a mutex (single-writer rule, ADR 0006).
 pub struct Store {
     conn: Connection,
+}
+
+/// One row of the plan overview query.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PlanRow {
+    pub plan_id: String,
+    pub rower_id: String,
+    pub created_at: String,
+    pub status: String,
 }
 
 /// One row of the per-session overview query.
@@ -182,6 +194,66 @@ impl Store {
         Ok(inserted > 0)
     }
 
+    /// Persist a generated plan with its lifecycle status (ADR 0009).
+    pub fn save_plan(
+        &self,
+        plan: &WorkoutPlan,
+        status: &str,
+        created_at: DateTime<Utc>,
+    ) -> Result<(), StoreError> {
+        self.conn.execute(
+            "INSERT INTO plan (plan_id, rower_id, created_at, status, body)
+             VALUES (?, ?, ?, ?, ?)",
+            params![
+                plan.plan_id.to_string(),
+                plan.rower_id.as_str(),
+                created_at.to_rfc3339(),
+                status,
+                serde_json::to_string(plan)?,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_plan(&self, plan_id: PlanId) -> Result<Option<WorkoutPlan>, StoreError> {
+        let body: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT body FROM plan WHERE plan_id = ?",
+                params![plan_id.to_string()],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(body.map(|b| serde_json::from_str(&b)).transpose()?)
+    }
+
+    pub fn set_plan_status(&self, plan_id: PlanId, status: &str) -> Result<bool, StoreError> {
+        let updated = self.conn.execute(
+            "UPDATE plan SET status = ? WHERE plan_id = ?",
+            params![status, plan_id.to_string()],
+        )?;
+        Ok(updated > 0)
+    }
+
+    /// Plan overview rows, newest first.
+    pub fn list_plans(&self) -> Result<Vec<PlanRow>, StoreError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT plan_id, rower_id, CAST(created_at AS TEXT), status
+             FROM plan ORDER BY created_at DESC",
+        )?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(PlanRow {
+                    plan_id: row.get(0)?,
+                    rower_id: row.get(1)?,
+                    created_at: row.get(2)?,
+                    status: row.get(3)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
     /// Per-session overview, newest first.
     pub fn session_summaries(&self) -> Result<Vec<SessionSummaryRow>, StoreError> {
         let mut stmt = self.conn.prepare(
@@ -258,11 +330,12 @@ mod tests {
 
     #[test]
     fn migrations_apply_and_are_idempotent() {
+        let latest = MIGRATIONS.last().unwrap().0;
         let store = Store::open_in_memory().unwrap();
-        assert_eq!(store.schema_version().unwrap(), 1);
+        assert_eq!(store.schema_version().unwrap(), latest);
         // Re-running on the same connection is a no-op.
         store.migrate().unwrap();
-        assert_eq!(store.schema_version().unwrap(), 1);
+        assert_eq!(store.schema_version().unwrap(), latest);
     }
 
     #[test]
@@ -297,6 +370,38 @@ mod tests {
         assert_eq!(event_type, "started");
         let parsed: WorkoutEvent = serde_json::from_str(&payload).unwrap();
         assert_eq!(parsed, env.payload);
+    }
+
+    #[test]
+    fn plan_save_get_status_round_trip() {
+        use monorail_core::plan::{Extent, Feasibility, WorkoutGoal, Zone};
+        use monorail_core::RowerId;
+
+        let store = Store::open_in_memory().unwrap();
+        let plan = WorkoutPlan {
+            plan_id: PlanId(Uuid::from_u128(0xab)),
+            rower_id: RowerId::new("erg-1").unwrap(),
+            goal: WorkoutGoal {
+                zone: Zone::Ut2,
+                extent: Extent::Time { seconds: 2400 },
+                target_split_s: 120.0,
+                target_spm: 20,
+                hr_cap_bpm: None,
+            },
+            segments: vec![],
+            feasibility: Feasibility::Unchecked,
+        };
+        let created = Utc.with_ymd_and_hms(2026, 6, 10, 7, 0, 0).unwrap();
+
+        store.save_plan(&plan, "recommended", created).unwrap();
+        assert_eq!(store.get_plan(plan.plan_id).unwrap(), Some(plan.clone()));
+        assert_eq!(store.get_plan(PlanId(Uuid::from_u128(0xff))).unwrap(), None);
+
+        assert!(store.set_plan_status(plan.plan_id, "scheduled").unwrap());
+        let rows = store.list_plans().unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].status, "scheduled");
+        assert_eq!(rows[0].rower_id, "erg-1");
     }
 
     #[test]

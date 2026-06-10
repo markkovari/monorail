@@ -2123,26 +2123,30 @@ dependencies = [
 
 [[package]]
 name = "monorail-api"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
+ "async-nats",
  "axum",
+ "chrono",
  "futures",
  "http-body-util",
  "monorail-coach",
  "monorail-core",
  "monorail-predict",
  "monorail-store",
+ "monorail-stream",
  "serde",
  "serde_json",
  "tokio",
  "tokio-stream",
  "tower",
  "tracing",
+ "uuid",
 ]
 
 [[package]]
 name = "monorail-coach"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "monorail-core",
  "monorail-predict",
@@ -2155,7 +2159,7 @@ dependencies = [
 
 [[package]]
 name = "monorail-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "serde",
@@ -2165,7 +2169,7 @@ dependencies = [
 
 [[package]]
 name = "monorail-pm5"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hidapi",
  "monorail-core",
@@ -2176,7 +2180,7 @@ dependencies = [
 
 [[package]]
 name = "monorail-predict"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "monorail-core",
@@ -2187,15 +2191,18 @@ dependencies = [
 
 [[package]]
 name = "monorail-rower"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
+ "async-nats",
  "chrono",
  "clap",
+ "futures",
  "monorail-core",
  "monorail-pm5",
  "monorail-stream",
  "serde",
+ "serde_json",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -2204,7 +2211,7 @@ dependencies = [
 
 [[package]]
 name = "monorail-sink"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "async-nats",
@@ -2226,7 +2233,7 @@ dependencies = [
 
 [[package]]
 name = "monorail-store"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "duckdb",
@@ -2240,19 +2247,20 @@ dependencies = [
 
 [[package]]
 name = "monorail-stream"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-nats",
  "monorail-core",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
+ "tokio",
  "tracing",
 ]
 
 [[package]]
 name = "monorail-ui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "console_error_panic_hook",
  "leptos",

@@ -8,20 +8,25 @@
 //! status) lands with the coach/command-plane wiring.
 
 use std::convert::Infallible;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::sse::{Event, KeepAlive, Sse};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{Json, Router};
+use chrono::Utc;
 use futures::Stream;
-use monorail_store::{SessionSummaryRow, Store};
+use monorail_core::plan::{PlanRequest, WorkoutPlan};
+use monorail_core::wire::CommandReply;
+use monorail_core::PlanId;
+use monorail_store::{PlanRow, SessionSummaryRow, Store};
 use serde::Serialize;
 use tokio::sync::broadcast;
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt;
+use uuid::Uuid;
 
 /// One telemetry message fanned out to live dashboard subscribers.
 /// `payload` is the wire envelope JSON, passed through verbatim.
@@ -38,12 +43,31 @@ pub struct LiveEvent {
 pub struct AppState {
     live: broadcast::Sender<LiveEvent>,
     store: Arc<Mutex<Store>>,
+    /// Core NATS client for the command plane (ADR 0010); `None` in tests
+    /// or when the sink runs without NATS, making pushes 503.
+    nats: Option<async_nats::Client>,
 }
 
 impl AppState {
-    pub fn new(live: broadcast::Sender<LiveEvent>, store: Arc<Mutex<Store>>) -> Self {
-        Self { live, store }
+    pub fn new(
+        live: broadcast::Sender<LiveEvent>,
+        store: Arc<Mutex<Store>>,
+        nats: Option<async_nats::Client>,
+    ) -> Self {
+        Self { live, store, nats }
     }
+
+    fn store(&self) -> Result<MutexGuard<'_, Store>, StatusCode> {
+        self.store.lock().map_err(|_| {
+            tracing::error!("store mutex poisoned");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })
+    }
+}
+
+fn internal(error: impl std::fmt::Display) -> StatusCode {
+    tracing::error!(%error, "request failed");
+    StatusCode::INTERNAL_SERVER_ERROR
 }
 
 #[derive(Debug, Serialize)]
@@ -62,14 +86,81 @@ async fn health() -> Json<Health> {
 async fn sessions(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<SessionSummaryRow>>, StatusCode> {
-    let store = state.store.lock().map_err(|_| {
-        tracing::error!("store mutex poisoned");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-    store.session_summaries().map(Json).map_err(|error| {
-        tracing::error!(%error, "session query failed");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })
+    state
+        .store()?
+        .session_summaries()
+        .map(Json)
+        .map_err(internal)
+}
+
+/// Generate a plan from a goal (templates + feasibility, ADR 0009), persist
+/// it as `recommended`, return it. No fitted athlete models yet, so
+/// feasibility stays `Unchecked`.
+async fn create_plan(
+    State(state): State<AppState>,
+    Json(request): Json<PlanRequest>,
+) -> Result<(StatusCode, Json<WorkoutPlan>), StatusCode> {
+    let plan = monorail_coach::generate_plan(request.rower_id, request.goal, None);
+    state
+        .store()?
+        .save_plan(&plan, "recommended", Utc::now())
+        .map_err(internal)?;
+    Ok((StatusCode::CREATED, Json(plan)))
+}
+
+async fn list_plans(State(state): State<AppState>) -> Result<Json<Vec<PlanRow>>, StatusCode> {
+    state.store()?.list_plans().map(Json).map_err(internal)
+}
+
+fn parse_plan_id(id: &str) -> Result<PlanId, StatusCode> {
+    Uuid::parse_str(id)
+        .map(PlanId)
+        .map_err(|_| StatusCode::BAD_REQUEST)
+}
+
+async fn get_plan(
+    Path(id): Path<String>,
+    State(state): State<AppState>,
+) -> Result<Json<WorkoutPlan>, StatusCode> {
+    let plan_id = parse_plan_id(&id)?;
+    state
+        .store()?
+        .get_plan(plan_id)
+        .map_err(internal)?
+        .map(Json)
+        .ok_or(StatusCode::NOT_FOUND)
+}
+
+/// Push a plan to its rower over the command plane (ADR 0010). On ack the
+/// plan moves to `scheduled`; a nack passes the Pi's reason through as 409.
+async fn push_plan(
+    Path(id): Path<String>,
+    State(state): State<AppState>,
+) -> Result<(StatusCode, Json<CommandReply>), StatusCode> {
+    let plan_id = parse_plan_id(&id)?;
+    let Some(nats) = state.nats.clone() else {
+        return Err(StatusCode::SERVICE_UNAVAILABLE);
+    };
+    let plan = state
+        .store()?
+        .get_plan(plan_id)
+        .map_err(internal)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    let reply = monorail_stream::commands::push_plan(&nats, &plan)
+        .await
+        .map_err(internal)?;
+
+    match &reply {
+        CommandReply::Ack { .. } => {
+            state
+                .store()?
+                .set_plan_status(plan_id, "scheduled")
+                .map_err(internal)?;
+            Ok((StatusCode::OK, Json(reply)))
+        }
+        CommandReply::Nack { .. } => Ok((StatusCode::CONFLICT, Json(reply))),
+    }
 }
 
 /// SSE fan-out of live telemetry for one rower. Lagging subscribers drop
@@ -98,6 +189,9 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/api/v1/health", get(health))
         .route("/api/v1/sessions", get(sessions))
+        .route("/api/v1/plans", post(create_plan).get(list_plans))
+        .route("/api/v1/plans/{id}", get(get_plan))
+        .route("/api/v1/plans/{id}/push", post(push_plan))
         .route("/api/v1/live/{rower_id}", get(live))
         .with_state(state)
 }
@@ -114,18 +208,50 @@ mod tests {
     fn test_state() -> AppState {
         let (live, _) = broadcast::channel(16);
         let store = Arc::new(Mutex::new(Store::open_in_memory().unwrap()));
-        AppState::new(live, store)
+        AppState::new(live, store, None)
+    }
+
+    async fn request(
+        router: Router,
+        method: &str,
+        uri: &str,
+        body: Option<serde_json::Value>,
+    ) -> (StatusCode, serde_json::Value) {
+        let request = match body {
+            Some(json) => Request::builder()
+                .method(method)
+                .uri(uri)
+                .header("content-type", "application/json")
+                .body(Body::from(json.to_string()))
+                .unwrap(),
+            None => Request::builder()
+                .method(method)
+                .uri(uri)
+                .body(Body::empty())
+                .unwrap(),
+        };
+        let response = router.oneshot(request).await.unwrap();
+        let status = response.status();
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let json = serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
+        (status, json)
     }
 
     async fn get_json(uri: &str) -> (StatusCode, serde_json::Value) {
-        let response = router(test_state())
-            .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
-            .await
-            .unwrap();
-        let status = response.status();
-        let body = response.into_body().collect().await.unwrap().to_bytes();
-        let json = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
-        (status, json)
+        request(router(test_state()), "GET", uri, None).await
+    }
+
+    fn ut2_request() -> serde_json::Value {
+        serde_json::json!({
+            "rower_id": "erg-1",
+            "goal": {
+                "zone": "ut2",
+                "extent": { "time": { "seconds": 2400 } },
+                "target_split_s": 120.0,
+                "target_spm": 20,
+                "hr_cap_bpm": null
+            }
+        })
     }
 
     #[tokio::test]
@@ -161,5 +287,82 @@ mod tests {
     async fn unknown_route_is_404() {
         let (status, _) = get_json("/api/v1/nope").await;
         assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn plan_create_list_get_round_trip() {
+        // One state shared across calls so the in-memory store persists.
+        let state = test_state();
+
+        let (status, plan) = request(
+            router(state.clone()),
+            "POST",
+            "/api/v1/plans",
+            Some(ut2_request()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+        // 40min UT2 -> build/core/push template (ADR 0009).
+        assert_eq!(plan["segments"].as_array().unwrap().len(), 3);
+        let id = plan["plan_id"].as_str().unwrap().to_string();
+
+        let (status, list) = request(router(state.clone()), "GET", "/api/v1/plans", None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(list[0]["plan_id"], id.as_str());
+        assert_eq!(list[0]["status"], "recommended");
+
+        let (status, fetched) = request(
+            router(state.clone()),
+            "GET",
+            &format!("/api/v1/plans/{id}"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(fetched, plan);
+
+        let (status, _) = request(
+            router(state),
+            "GET",
+            "/api/v1/plans/00000000-0000-4000-8000-0000000000ff",
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn push_without_nats_is_503() {
+        let state = test_state();
+        let (status, plan) = request(
+            router(state.clone()),
+            "POST",
+            "/api/v1/plans",
+            Some(ut2_request()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+        let id = plan["plan_id"].as_str().unwrap();
+
+        let (status, _) = request(
+            router(state),
+            "POST",
+            &format!("/api/v1/plans/{id}/push"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[tokio::test]
+    async fn malformed_plan_id_is_400() {
+        let (status, _) = request(
+            router(test_state()),
+            "GET",
+            "/api/v1/plans/not-a-uuid",
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
     }
 }

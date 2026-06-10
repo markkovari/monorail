@@ -12,7 +12,10 @@ monorail-pm5 = { workspace = true }
 monorail-stream = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 chrono = { workspace = true, features = ["clock"] }
+async-nats = { workspace = true }
+futures = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 tokio = { workspace = true }
 clap = { workspace = true }
 anyhow = { workspace = true }

@@ -2,9 +2,10 @@
 //! tracked in `schema_migrations`. Append-only: never edit a shipped
 //! migration, add a new one.
 
-pub const MIGRATIONS: &[(u32, &str)] = &[(
-    1,
-    r#"
+pub const MIGRATIONS: &[(u32, &str)] = &[
+    (
+        1,
+        r#"
     -- Raw append-only tables. (session_id, seq) is the system-wide
     -- idempotency key (ADRs 0004/0005); raw rows are never mutated.
 
@@ -51,4 +52,20 @@ pub const MIGRATIONS: &[(u32, &str)] = &[(
         PRIMARY KEY (session_id, seq)
     );
     "#,
-)];
+    ),
+    (
+        2,
+        r#"
+    -- Workout plans (ADR 0009). The full WorkoutPlan is stored lossless as
+    -- JSON; status tracks the lifecycle
+    -- (draft -> recommended -> scheduled -> active -> completed/abandoned).
+    CREATE TABLE plan (
+        plan_id    TEXT PRIMARY KEY,
+        rower_id   TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        status     TEXT NOT NULL,
+        body       TEXT NOT NULL
+    );
+    "#,
+    ),
+];
