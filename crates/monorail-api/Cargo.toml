@@ -12,7 +12,10 @@ monorail-coach = { workspace = true }
 monorail-predict = { workspace = true }
 monorail-store = { workspace = true }
 axum = { workspace = true }
+futures = { workspace = true }
 serde = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
