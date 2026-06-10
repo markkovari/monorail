@@ -46,14 +46,14 @@ async fn main() -> anyhow::Result<()> {
     );
 
     // TODO wiring still to land:
-    // - open store (migrations), ingest from the consumer (ADR 0006)
     // - SSE fan-out broadcast channel from the consumer (ADR 0011)
     // - command-plane client for plan pushes (ADR 0010)
     // - serve UI bundle as static files next to the API
+    let store = monorail_store::Store::open(&config.db_path)?;
     let js = connect(&config.nats_url).await?;
     ensure_stream(&js).await?;
 
-    let consume = tokio::spawn(async move { consumer::run(&js).await });
+    let consume = tokio::spawn(async move { consumer::run(&js, store).await });
 
     let app = monorail_api::router();
     let listener = tokio::net::TcpListener::bind(&config.listen).await?;
