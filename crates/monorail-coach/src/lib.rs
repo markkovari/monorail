@@ -5,6 +5,10 @@
 //! (`monorail-predict::FeasibilityJudge`). Compliance scoring joins a plan's
 //! segments against recorded telemetry by `plan_id` after the session.
 
+pub mod compliance;
+
+pub use compliance::score_compliance;
+
 use monorail_core::plan::{
     Band, Extent, Feasibility, Segment, SegmentIntent, WorkoutGoal, WorkoutPlan,
 };
