@@ -4,7 +4,64 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>monorail</title>
-    <link data-trunk rel="rust" />
+    <!-- rustc emits bulk-memory/nontrapping-float ops by default now;
+         wasm-opt must be told to accept them -->
+    <link
+      data-trunk
+      rel="rust"
+      data-wasm-opt="2"
+      data-wasm-opt-params="--enable-bulk-memory --enable-nontrapping-float-to-int"
+    />
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        margin: 0;
+        font-family: ui-monospace, "SF Mono", Menlo, monospace;
+        background: #101418;
+        color: #d8dee6;
+      }
+      header {
+        display: flex;
+        align-items: baseline;
+        gap: 2rem;
+        padding: 0.8rem 1.2rem;
+        border-bottom: 1px solid #2a323c;
+      }
+      h1 { font-size: 1.2rem; margin: 0; color: #7fd1b9; }
+      h2 { color: #9bb4c8; }
+      nav button {
+        background: none;
+        border: none;
+        color: #8a97a5;
+        font: inherit;
+        padding: 0.4rem 0.8rem;
+        cursor: pointer;
+      }
+      nav button.active { color: #7fd1b9; border-bottom: 2px solid #7fd1b9; }
+      main { padding: 1rem 1.4rem; max-width: 64rem; }
+      table { border-collapse: collapse; width: 100%; margin-top: 0.6rem; }
+      th, td { text-align: left; padding: 0.35rem 0.7rem; border-bottom: 1px solid #222a33; }
+      tbody tr { cursor: pointer; }
+      tbody tr:hover, tr.selected { background: #1a2129; }
+      button { font: inherit; }
+      .form { display: flex; gap: 1rem; align-items: end; flex-wrap: wrap; }
+      .form label { display: flex; flex-direction: column; gap: 0.2rem; }
+      input { background: #1a2129; color: inherit; border: 1px solid #2a323c; padding: 0.3rem; width: 7rem; }
+      .form button, section > button {
+        background: #234436;
+        color: #b9e7d6;
+        border: 1px solid #2f5b48;
+        padding: 0.35rem 0.9rem;
+        cursor: pointer;
+      }
+      .error { color: #e08484; }
+      .status { color: #c9b97a; min-height: 1.2em; }
+      .live-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 1rem; }
+      .metric { background: #161c23; padding: 1rem; border: 1px solid #222a33; text-align: center; }
+      .metric strong { display: block; font-size: 2rem; color: #7fd1b9; }
+      .metric span { color: #8a97a5; font-size: 0.8rem; }
+      code { color: #c9b97a; }
+    </style>
   </head>
   <body></body>
 </html>

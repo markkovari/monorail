@@ -35,54 +35,9 @@ pub struct Store {
     conn: Connection,
 }
 
-/// One row of the plan overview query.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct PlanRow {
-    pub plan_id: String,
-    pub rower_id: String,
-    pub created_at: String,
-    pub status: String,
-}
-
-/// One stored per-segment compliance row.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ComplianceRow {
-    pub plan_id: String,
-    pub segment_index: u32,
-    pub intent: String,
-    pub sample_count: u32,
-    pub split_in_band: f32,
-    pub spm_in_band: f32,
-}
-
-/// One row of the per-session overview query.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct SessionSummaryRow {
-    pub session_id: String,
-    pub rower_id: String,
-    pub started_at: String,
-    pub monitor_samples: u64,
-    pub strokes: u64,
-    pub last_distance_m: Option<f64>,
-    pub duration_s: Option<f64>,
-    pub avg_power_watts: Option<f64>,
-    /// Calories as a PM5 would show them (175 lb reference, ADR 0012).
-    pub kcal_pm: Option<f64>,
-    /// Weight-adjusted calories; `null` until an athlete weight is set.
-    pub kcal_adjusted: Option<f64>,
-}
-
-/// One imported Concept2 Logbook result (ADR 0013).
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct LogbookRow {
-    pub id: u64,
-    pub date: String,
-    pub distance_m: Option<f64>,
-    pub duration_s: Option<f64>,
-    pub calories_total: Option<u32>,
-    pub stroke_rate: Option<u32>,
-    pub raw: String,
-}
+// Row types live in core (they cross the HTTP wire, ADR 0011); re-exported
+// here so store callers keep working.
+pub use monorail_core::api::{ComplianceRow, LogbookRow, PlanRow, SessionSummaryRow};
 
 impl Store {
     /// Open (creating if needed) and migrate the database at `path`.

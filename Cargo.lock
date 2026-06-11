@@ -2298,8 +2298,10 @@ name = "monorail-ui"
 version = "0.1.1"
 dependencies = [
  "console_error_panic_hook",
+ "gloo-net",
  "leptos",
  "monorail-core",
+ "serde",
  "serde_json",
  "wasm-bindgen",
  "web-sys",
