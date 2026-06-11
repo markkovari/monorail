@@ -46,6 +46,9 @@ pub struct AppState {
     /// Core NATS client for the command plane (ADR 0010); `None` in tests
     /// or when the sink runs without NATS, making pushes 503.
     nats: Option<async_nats::Client>,
+    /// Concept2 Logbook client (ADR 0013); `None` without a token, making
+    /// sync 503.
+    logbook: Option<Arc<monorail_logbook::LogbookClient>>,
 }
 
 impl AppState {
@@ -53,8 +56,14 @@ impl AppState {
         live: broadcast::Sender<LiveEvent>,
         store: Arc<Mutex<Store>>,
         nats: Option<async_nats::Client>,
+        logbook: Option<Arc<monorail_logbook::LogbookClient>>,
     ) -> Self {
-        Self { live, store, nats }
+        Self {
+            live,
+            store,
+            nats,
+            logbook,
+        }
     }
 
     fn store(&self) -> Result<MutexGuard<'_, Store>, StatusCode> {
@@ -117,6 +126,80 @@ async fn create_plan(
         .save_plan(&plan, "recommended", Utc::now())
         .map_err(internal)?;
     Ok((StatusCode::CREATED, Json(plan)))
+}
+
+/// Athlete profile (ADR 0012). 404 until a weight is set.
+async fn get_athlete(
+    State(state): State<AppState>,
+) -> Result<Json<monorail_core::metrics::AthleteProfile>, StatusCode> {
+    state
+        .store()?
+        .get_athlete()
+        .map_err(internal)?
+        .map(Json)
+        .ok_or(StatusCode::NOT_FOUND)
+}
+
+async fn put_athlete(
+    State(state): State<AppState>,
+    Json(profile): Json<monorail_core::metrics::AthleteProfile>,
+) -> Result<Json<monorail_core::metrics::AthleteProfile>, StatusCode> {
+    if !(profile.weight_kg.is_finite() && (20.0..=400.0).contains(&profile.weight_kg)) {
+        return Err(StatusCode::UNPROCESSABLE_ENTITY);
+    }
+    state
+        .store()?
+        .set_athlete(profile, Utc::now())
+        .map_err(internal)?;
+    Ok(Json(profile))
+}
+
+#[derive(Debug, Serialize)]
+struct SyncOutcome {
+    fetched: usize,
+    imported: u64,
+}
+
+/// Pull ErgData-synced results from the Concept2 Logbook (ADR 0013).
+/// 503 without a configured token.
+async fn logbook_sync(State(state): State<AppState>) -> Result<Json<SyncOutcome>, StatusCode> {
+    let Some(client) = state.logbook.clone() else {
+        return Err(StatusCode::SERVICE_UNAVAILABLE);
+    };
+    let fetched = client.fetch_results().await.map_err(|error| {
+        tracing::error!(%error, "logbook fetch failed");
+        StatusCode::BAD_GATEWAY
+    })?;
+    let rows: Vec<monorail_store::LogbookRow> = fetched
+        .iter()
+        .map(|f| monorail_store::LogbookRow {
+            id: f.result.id,
+            date: f.result.date.clone(),
+            distance_m: f.result.distance,
+            duration_s: f.result.duration_s(),
+            calories_total: f.result.calories_total,
+            stroke_rate: f.result.stroke_rate,
+            raw: f.raw.clone(),
+        })
+        .collect();
+    let imported = state
+        .store()?
+        .upsert_logbook_results(&rows)
+        .map_err(internal)?;
+    Ok(Json(SyncOutcome {
+        fetched: rows.len(),
+        imported,
+    }))
+}
+
+async fn logbook_list(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<monorail_store::LogbookRow>>, StatusCode> {
+    state
+        .store()?
+        .list_logbook_results()
+        .map(Json)
+        .map_err(internal)
 }
 
 /// Stored per-segment compliance for a session; 404 until the session ends
@@ -220,6 +303,9 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/health", get(health))
         .route("/api/v1/sessions", get(sessions))
         .route("/api/v1/sessions/{id}/compliance", get(session_compliance))
+        .route("/api/v1/athlete", get(get_athlete).put(put_athlete))
+        .route("/api/v1/logbook", get(logbook_list))
+        .route("/api/v1/logbook/sync", axum::routing::post(logbook_sync))
         .route("/api/v1/plans", post(create_plan).get(list_plans))
         .route("/api/v1/plans/{id}", get(get_plan))
         .route("/api/v1/plans/{id}/push", post(push_plan))
@@ -239,7 +325,7 @@ mod tests {
     fn test_state() -> AppState {
         let (live, _) = broadcast::channel(16);
         let store = Arc::new(Mutex::new(Store::open_in_memory().unwrap()));
-        AppState::new(live, store, None)
+        AppState::new(live, store, None, None)
     }
 
     async fn request(
@@ -383,6 +469,49 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[tokio::test]
+    async fn athlete_profile_round_trips() {
+        let state = test_state();
+        let (status, _) = request(router(state.clone()), "GET", "/api/v1/athlete", None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+
+        let (status, body) = request(
+            router(state.clone()),
+            "PUT",
+            "/api/v1/athlete",
+            Some(serde_json::json!({"weight_kg": 90.0})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["weight_kg"], 90.0);
+
+        let (status, body) = request(router(state.clone()), "GET", "/api/v1/athlete", None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["weight_kg"], 90.0);
+
+        // Unphysical weight rejected.
+        let (status, _) = request(
+            router(state),
+            "PUT",
+            "/api/v1/athlete",
+            Some(serde_json::json!({"weight_kg": 0.0})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    #[tokio::test]
+    async fn logbook_sync_without_token_is_503_and_list_is_empty() {
+        let state = test_state();
+        let (status, _) =
+            request(router(state.clone()), "POST", "/api/v1/logbook/sync", None).await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+
+        let (status, body) = request(router(state), "GET", "/api/v1/logbook", None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, serde_json::json!([]));
     }
 
     #[tokio::test]

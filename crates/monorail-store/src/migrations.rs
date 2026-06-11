@@ -85,4 +85,32 @@ pub const MIGRATIONS: &[(u32, &str)] = &[
     );
     "#,
     ),
+    (
+        4,
+        r#"
+    -- Athlete profile (ADR 0012). Single-athlete deployment: one row.
+    CREATE TABLE athlete (
+        id         INTEGER PRIMARY KEY CHECK (id = 1),
+        weight_kg  REAL NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL
+    );
+    "#,
+    ),
+    (
+        5,
+        r#"
+    -- Results imported from the Concept2 Logbook (ADR 0013), keyed by the
+    -- Logbook's own result id. Raw JSON kept lossless; never merged into
+    -- monitor_sample/stroke.
+    CREATE TABLE logbook_result (
+        id             BIGINT PRIMARY KEY,
+        date           TEXT NOT NULL,
+        distance_m     DOUBLE,
+        duration_s     DOUBLE,
+        calories_total INTEGER,
+        stroke_rate    INTEGER,
+        raw            TEXT NOT NULL
+    );
+    "#,
+    ),
 ];

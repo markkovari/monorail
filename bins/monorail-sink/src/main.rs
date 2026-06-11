@@ -36,6 +36,11 @@ struct Config {
     /// `/` when it exists.
     #[arg(long, env = "MONORAIL_UI_DIST", default_value = "web/monorail-ui/dist")]
     ui_dist: PathBuf,
+
+    /// Concept2 Logbook access token (ADR 0013); sync endpoint answers 503
+    /// without it.
+    #[arg(long, env = "MONORAIL_LOGBOOK_TOKEN")]
+    logbook_token: Option<String>,
 }
 
 #[tokio::main]
@@ -54,8 +59,6 @@ async fn main() -> anyhow::Result<()> {
         "monorail-sink starting"
     );
 
-    // TODO wiring still to land:
-    // - command-plane client for plan pushes (ADR 0010)
     let store = Arc::new(Mutex::new(monorail_store::Store::open(&config.db_path)?));
     let (client, js) = connect(&config.nats_url).await?;
     ensure_stream(&js).await?;
@@ -66,7 +69,14 @@ async fn main() -> anyhow::Result<()> {
     let consume =
         tokio::spawn(async move { consumer::run(&js, consumer_store, consumer_live).await });
 
-    let mut app = monorail_api::router(AppState::new(live, store, Some(client)));
+    let logbook = config
+        .logbook_token
+        .as_ref()
+        .map(|token| Arc::new(monorail_logbook::LogbookClient::new(token.clone())));
+    if logbook.is_some() {
+        tracing::info!("logbook sync enabled");
+    }
+    let mut app = monorail_api::router(AppState::new(live, store, Some(client), logbook));
     if config.ui_dist.is_dir() {
         tracing::info!(dist = %config.ui_dist.display(), "serving UI bundle");
         app = app.fallback_service(ServeDir::new(&config.ui_dist));

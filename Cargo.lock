@@ -2132,6 +2132,7 @@ dependencies = [
  "http-body-util",
  "monorail-coach",
  "monorail-core",
+ "monorail-logbook",
  "monorail-predict",
  "monorail-store",
  "monorail-stream",
@@ -2165,6 +2166,18 @@ dependencies = [
  "serde",
  "serde_json",
  "uuid",
+]
+
+[[package]]
+name = "monorail-logbook"
+version = "0.1.1"
+dependencies = [
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -2221,6 +2234,7 @@ dependencies = [
  "monorail-api",
  "monorail-coach",
  "monorail-core",
+ "monorail-logbook",
  "monorail-predict",
  "monorail-store",
  "monorail-stream",

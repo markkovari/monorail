@@ -12,6 +12,7 @@ monorail-coach = { workspace = true }
 monorail-predict = { workspace = true }
 monorail-store = { workspace = true }
 monorail-stream = { workspace = true }
+monorail-logbook = { workspace = true }
 async-nats = { workspace = true }
 axum = { workspace = true }
 chrono = { workspace = true, features = ["clock"] }

@@ -12,6 +12,7 @@ monorail-stream = { workspace = true }
 monorail-store = { workspace = true }
 monorail-predict = { workspace = true }
 monorail-coach = { workspace = true }
+monorail-logbook = { workspace = true }
 monorail-api = { workspace = true }
 anyhow = { workspace = true }
 async-nats = { workspace = true }
