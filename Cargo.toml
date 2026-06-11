@@ -65,7 +65,7 @@ clap = { version = "4", features = ["derive", "env"] }
 hidapi = "2"
 duckdb = { version = "1", features = ["bundled"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
-leptos = { version = "0.7", features = ["csr"] }
+leptos = { version = "0.8", features = ["csr"] }
 console_error_panic_hook = "0.1"
 wasm-bindgen = "0.2"
 web-sys = { version = "0.3", features = ["EventSource", "MessageEvent"] }
