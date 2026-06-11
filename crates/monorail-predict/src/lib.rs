@@ -2,8 +2,12 @@
 //! frames produced by `monorail-store` — critical-power/W′, Riegel scaling,
 //! regression on engineered features. Never raw SQL, never raw messages.
 
+pub mod critical_power;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+
+pub use critical_power::CriticalPowerModel;
 
 /// Features extracted from the athlete's history; produced by typed
 /// `monorail-store` queries. Fields grow with the first real model.

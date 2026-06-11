@@ -80,7 +80,11 @@ fn handle(
         TelemetryKind::WorkoutEvent => {
             let env: Envelope<WorkoutEvent> = serde_json::from_slice(&message.payload)?;
             tracing::info!(session = %env.session_id, event = ?env.payload, "workout event");
-            store.ingest_workout_event(rower, &env)?
+            let fresh = store.ingest_workout_event(rower, &env)?;
+            if fresh && matches!(env.payload, WorkoutEvent::Ended { .. }) {
+                score_session(&store, env.session_id);
+            }
+            fresh
         }
     };
     drop(store);
@@ -95,4 +99,33 @@ fn handle(
     }
     tracing::debug!(subject, kind = kind.as_str(), fresh, "ingested");
     Ok(())
+}
+
+/// Compliance scoring on session end (ADR 0009): if the session executed a
+/// plan, score its telemetry against the plan's segments and persist.
+/// Failures only log — scoring is derived data, rebuildable any time.
+fn score_session(store: &Store, session_id: monorail_core::SessionId) {
+    let result = (|| -> anyhow::Result<()> {
+        let Some(plan_id) = store.session_plan_id(session_id)? else {
+            return Ok(()); // unplanned free row
+        };
+        let Some(plan) = store.get_plan(plan_id)? else {
+            anyhow::bail!("session references unknown plan {plan_id}");
+        };
+        let samples = store.session_monitor_samples(session_id)?;
+        let report = monorail_coach::score_compliance(&plan, session_id, &samples);
+        store.save_compliance(&report)?;
+        store.set_plan_status(plan_id, "completed")?;
+        tracing::info!(
+            %plan_id,
+            %session_id,
+            split_in_band = report.overall_split_in_band,
+            spm_in_band = report.overall_spm_in_band,
+            "session scored against plan"
+        );
+        Ok(())
+    })();
+    if let Err(error) = result {
+        tracing::error!(%error, %session_id, "compliance scoring failed");
+    }
 }

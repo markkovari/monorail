@@ -104,6 +104,30 @@ pub struct PlanRequest {
     pub goal: WorkoutGoal,
 }
 
+/// How one executed segment matched its plan targets (ADR 0009).
+/// In-band values are fractions of samples inside the target band, 0.0–1.0.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SegmentCompliance {
+    pub segment_index: u32,
+    pub intent: SegmentIntent,
+    pub sample_count: u32,
+    pub split_in_band: f32,
+    /// SPM adherence is ours to measure — the PM5 cannot enforce stroke
+    /// rate (ADR 0010).
+    pub spm_in_band: f32,
+}
+
+/// Post-session adherence of recorded telemetry to a plan (ADR 0009).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ComplianceReport {
+    pub plan_id: PlanId,
+    pub session_id: crate::SessionId,
+    pub segments: Vec<SegmentCompliance>,
+    /// Sample-weighted averages across segments.
+    pub overall_split_in_band: f32,
+    pub overall_spm_in_band: f32,
+}
+
 /// A generated, pushable workout plan.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WorkoutPlan {

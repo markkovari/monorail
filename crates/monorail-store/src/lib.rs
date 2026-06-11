@@ -12,10 +12,10 @@ use std::path::Path;
 
 use chrono::{DateTime, Utc};
 use duckdb::{params, Connection, OptionalExt};
-use monorail_core::plan::WorkoutPlan;
-use monorail_core::telemetry::{MonitorSample, StrokeSample, WorkoutEvent};
+use monorail_core::plan::{ComplianceReport, WorkoutPlan};
+use monorail_core::telemetry::{MonitorSample, StrokePhase, StrokeSample, WorkoutEvent};
 use monorail_core::wire::Envelope;
-use monorail_core::PlanId;
+use monorail_core::{PlanId, SessionId};
 use thiserror::Error;
 
 pub use migrations::MIGRATIONS;
@@ -41,6 +41,17 @@ pub struct PlanRow {
     pub rower_id: String,
     pub created_at: String,
     pub status: String,
+}
+
+/// One stored per-segment compliance row.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ComplianceRow {
+    pub plan_id: String,
+    pub segment_index: u32,
+    pub intent: String,
+    pub sample_count: u32,
+    pub split_in_band: f32,
+    pub spm_in_band: f32,
 }
 
 /// One row of the per-session overview query.
@@ -285,6 +296,118 @@ impl Store {
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
     }
+
+    /// Monitor samples for a session, in sequence order, reconstructed as
+    /// wire types for compliance scoring.
+    pub fn session_monitor_samples(
+        &self,
+        session_id: SessionId,
+    ) -> Result<Vec<MonitorSample>, StoreError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT elapsed_s, distance_m, split_s_per_500m, stroke_rate_spm,
+                    power_watts, heart_rate_bpm, phase
+             FROM monitor_sample WHERE session_id = ? ORDER BY seq",
+        )?;
+        let rows = stmt
+            .query_map(params![session_id.to_string()], |row| {
+                let phase: String = row.get(6)?;
+                Ok(MonitorSample {
+                    elapsed_s: row.get(0)?,
+                    distance_m: row.get(1)?,
+                    split_s_per_500m: row.get(2)?,
+                    stroke_rate_spm: row.get(3)?,
+                    power_watts: row.get(4)?,
+                    heart_rate_bpm: row.get(5)?,
+                    phase: match phase.as_str() {
+                        "drive" => StrokePhase::Drive,
+                        "dwell" => StrokePhase::Dwell,
+                        "recovery" => StrokePhase::Recovery,
+                        _ => StrokePhase::Idle,
+                    },
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// The plan a session executed, if its `started` event carries one.
+    pub fn session_plan_id(&self, session_id: SessionId) -> Result<Option<PlanId>, StoreError> {
+        let payload: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT payload FROM workout_event
+                 WHERE session_id = ? AND event_type = 'started'",
+                params![session_id.to_string()],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let Some(payload) = payload else {
+            return Ok(None);
+        };
+        let event: WorkoutEvent = serde_json::from_str(&payload)?;
+        Ok(match event {
+            WorkoutEvent::Started { plan_id, .. } => plan_id,
+            _ => None,
+        })
+    }
+
+    /// Persist a compliance report (idempotent on re-score).
+    pub fn save_compliance(&self, report: &ComplianceReport) -> Result<(), StoreError> {
+        for seg in &report.segments {
+            self.conn.execute(
+                "INSERT OR REPLACE INTO plan_compliance
+                 (plan_id, session_id, segment_index, intent, sample_count,
+                  split_in_band, spm_in_band)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)",
+                params![
+                    report.plan_id.to_string(),
+                    report.session_id.to_string(),
+                    seg.segment_index,
+                    serde_json::to_string(&seg.intent)?.trim_matches('"'),
+                    seg.sample_count,
+                    seg.split_in_band,
+                    seg.spm_in_band,
+                ],
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Stored compliance rows for a session (empty when unscored/unplanned).
+    pub fn get_compliance(&self, session_id: SessionId) -> Result<Vec<ComplianceRow>, StoreError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT plan_id, segment_index, intent, sample_count,
+                    split_in_band, spm_in_band
+             FROM plan_compliance WHERE session_id = ? ORDER BY segment_index",
+        )?;
+        let rows = stmt
+            .query_map(params![session_id.to_string()], |row| {
+                Ok(ComplianceRow {
+                    plan_id: row.get(0)?,
+                    segment_index: row.get(1)?,
+                    intent: row.get(2)?,
+                    sample_count: row.get(3)?,
+                    split_in_band: row.get(4)?,
+                    spm_in_band: row.get(5)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// Per-session `(duration_s, avg_power_w)` efforts for critical-power
+    /// fitting (ADR 0007).
+    pub fn session_efforts(&self) -> Result<Vec<(f64, f64)>, StoreError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT max(elapsed_s), avg(power_watts)
+             FROM monitor_sample GROUP BY session_id
+             HAVING max(elapsed_s) > 0",
+        )?;
+        let rows = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
 }
 
 #[cfg(test)]
@@ -402,6 +525,64 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].status, "scheduled");
         assert_eq!(rows[0].rower_id, "erg-1");
+    }
+
+    #[test]
+    fn session_round_trip_for_scoring_inputs() {
+        use monorail_core::plan::{ComplianceReport, SegmentCompliance, SegmentIntent};
+
+        let store = Store::open_in_memory().unwrap();
+        let session = SessionId(Uuid::from_u128(1));
+        let plan_id = PlanId(Uuid::from_u128(0xab));
+
+        // Started event carrying the plan id.
+        let mut started = event_env(0);
+        started.payload = WorkoutEvent::Started {
+            ts: Utc.with_ymd_and_hms(2026, 6, 10, 6, 29, 55).unwrap(),
+            plan_id: Some(plan_id),
+        };
+        store.ingest_workout_event("erg-1", &started).unwrap();
+        for seq in 1..=3 {
+            store.ingest_monitor("erg-1", &monitor_env(seq)).unwrap();
+        }
+
+        assert_eq!(store.session_plan_id(session).unwrap(), Some(plan_id));
+        assert_eq!(
+            store
+                .session_plan_id(SessionId(Uuid::from_u128(0xff)))
+                .unwrap(),
+            None
+        );
+
+        let samples = store.session_monitor_samples(session).unwrap();
+        assert_eq!(samples.len(), 3);
+        assert_eq!(samples[0], monitor_env(1).payload);
+
+        // Efforts query sees the session.
+        let efforts = store.session_efforts().unwrap();
+        assert_eq!(efforts.len(), 1);
+        assert!((efforts[0].1 - 203.0).abs() < 0.01);
+
+        // Compliance save is idempotent (re-score replaces).
+        let report = ComplianceReport {
+            plan_id,
+            session_id: session,
+            segments: vec![SegmentCompliance {
+                segment_index: 0,
+                intent: SegmentIntent::Core,
+                sample_count: 3,
+                split_in_band: 1.0,
+                spm_in_band: 0.5,
+            }],
+            overall_split_in_band: 1.0,
+            overall_spm_in_band: 0.5,
+        };
+        store.save_compliance(&report).unwrap();
+        store.save_compliance(&report).unwrap();
+        let rows = store.get_compliance(session).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].intent, "core");
+        assert_eq!(rows[0].split_in_band, 1.0);
     }
 
     #[test]

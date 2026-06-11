@@ -94,18 +94,48 @@ async fn sessions(
 }
 
 /// Generate a plan from a goal (templates + feasibility, ADR 0009), persist
-/// it as `recommended`, return it. No fitted athlete models yet, so
-/// feasibility stays `Unchecked`.
+/// it as `recommended`, return it. Feasibility is judged by a critical-power
+/// model fitted from the athlete's session history (ADR 0007); with too
+/// little history the fit declines and feasibility stays `Unchecked`.
 async fn create_plan(
     State(state): State<AppState>,
     Json(request): Json<PlanRequest>,
 ) -> Result<(StatusCode, Json<WorkoutPlan>), StatusCode> {
-    let plan = monorail_coach::generate_plan(request.rower_id, request.goal, None);
-    state
-        .store()?
+    let store = state.store()?;
+    let judge = store
+        .session_efforts()
+        .map_err(internal)
+        .map(|efforts| monorail_predict::CriticalPowerModel::fit(&efforts))?;
+    let plan = monorail_coach::generate_plan(
+        request.rower_id,
+        request.goal,
+        judge
+            .as_ref()
+            .map(|j| j as &dyn monorail_predict::FeasibilityJudge),
+    );
+    store
         .save_plan(&plan, "recommended", Utc::now())
         .map_err(internal)?;
     Ok((StatusCode::CREATED, Json(plan)))
+}
+
+/// Stored per-segment compliance for a session; 404 until the session ends
+/// and gets scored (or when it ran without a plan).
+async fn session_compliance(
+    Path(id): Path<String>,
+    State(state): State<AppState>,
+) -> Result<Json<Vec<monorail_store::ComplianceRow>>, StatusCode> {
+    let session_id = Uuid::parse_str(&id)
+        .map(monorail_core::SessionId)
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
+    let rows = state
+        .store()?
+        .get_compliance(session_id)
+        .map_err(internal)?;
+    if rows.is_empty() {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    Ok(Json(rows))
 }
 
 async fn list_plans(State(state): State<AppState>) -> Result<Json<Vec<PlanRow>>, StatusCode> {
@@ -189,6 +219,7 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/api/v1/health", get(health))
         .route("/api/v1/sessions", get(sessions))
+        .route("/api/v1/sessions/{id}/compliance", get(session_compliance))
         .route("/api/v1/plans", post(create_plan).get(list_plans))
         .route("/api/v1/plans/{id}", get(get_plan))
         .route("/api/v1/plans/{id}/push", post(push_plan))

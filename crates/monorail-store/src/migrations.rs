@@ -68,4 +68,21 @@ pub const MIGRATIONS: &[(u32, &str)] = &[
     );
     "#,
     ),
+    (
+        3,
+        r#"
+    -- Per-segment plan adherence, computed after a session ends (ADR 0009).
+    -- Derived data: always rebuildable from plan + monitor_sample.
+    CREATE TABLE plan_compliance (
+        plan_id       TEXT NOT NULL,
+        session_id    TEXT NOT NULL,
+        segment_index INTEGER NOT NULL,
+        intent        TEXT NOT NULL,
+        sample_count  INTEGER NOT NULL,
+        split_in_band REAL NOT NULL,
+        spm_in_band   REAL NOT NULL,
+        PRIMARY KEY (plan_id, session_id, segment_index)
+    );
+    "#,
+    ),
 ];
