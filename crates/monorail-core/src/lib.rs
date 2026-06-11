@@ -6,6 +6,7 @@
 //! the Pi target and for wasm32 (the Leptos UI) alike.
 
 pub mod ids;
+pub mod metrics;
 pub mod plan;
 pub mod telemetry;
 pub mod wire;

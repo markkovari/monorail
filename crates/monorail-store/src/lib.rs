@@ -12,6 +12,7 @@ use std::path::Path;
 
 use chrono::{DateTime, Utc};
 use duckdb::{params, Connection, OptionalExt};
+use monorail_core::metrics::{self, AthleteProfile};
 use monorail_core::plan::{ComplianceReport, WorkoutPlan};
 use monorail_core::telemetry::{MonitorSample, StrokePhase, StrokeSample, WorkoutEvent};
 use monorail_core::wire::Envelope;
@@ -63,6 +64,24 @@ pub struct SessionSummaryRow {
     pub monitor_samples: u64,
     pub strokes: u64,
     pub last_distance_m: Option<f64>,
+    pub duration_s: Option<f64>,
+    pub avg_power_watts: Option<f64>,
+    /// Calories as a PM5 would show them (175 lb reference, ADR 0012).
+    pub kcal_pm: Option<f64>,
+    /// Weight-adjusted calories; `null` until an athlete weight is set.
+    pub kcal_adjusted: Option<f64>,
+}
+
+/// One imported Concept2 Logbook result (ADR 0013).
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct LogbookRow {
+    pub id: u64,
+    pub date: String,
+    pub distance_m: Option<f64>,
+    pub duration_s: Option<f64>,
+    pub calories_total: Option<u32>,
+    pub stroke_rate: Option<u32>,
+    pub raw: String,
 }
 
 impl Store {
@@ -265,8 +284,11 @@ impl Store {
         Ok(rows)
     }
 
-    /// Per-session overview, newest first.
+    /// Per-session overview, newest first. Calories are derived at query
+    /// time (ADRs 0006/0012): PM-reference always, weight-adjusted only
+    /// when an athlete weight is set.
     pub fn session_summaries(&self) -> Result<Vec<SessionSummaryRow>, StoreError> {
+        let weight_kg = self.get_athlete()?.map(|a| a.weight_kg as f64);
         let mut stmt = self.conn.prepare(
             "SELECT
                  e.session_id,
@@ -277,13 +299,22 @@ impl Store {
                  (SELECT count(*) FROM stroke s
                    WHERE s.session_id = e.session_id)             AS strokes,
                  (SELECT max(m.distance_m) FROM monitor_sample m
-                   WHERE m.session_id = e.session_id)             AS last_distance_m
+                   WHERE m.session_id = e.session_id)             AS last_distance_m,
+                 (SELECT max(m.elapsed_s) FROM monitor_sample m
+                   WHERE m.session_id = e.session_id)             AS duration_s,
+                 (SELECT avg(m.power_watts) FROM monitor_sample m
+                   WHERE m.session_id = e.session_id)             AS avg_power_watts
              FROM workout_event e
              GROUP BY e.session_id, e.rower_id
              ORDER BY min(e.ts) DESC",
         )?;
         let rows = stmt
             .query_map([], |row| {
+                let duration_s: Option<f64> = row.get(6)?;
+                let avg_power_watts: Option<f64> = row.get(7)?;
+                let kcal = |per_hr: fn(f64) -> f64| {
+                    Some(metrics::workout_kcal(per_hr(avg_power_watts?), duration_s?))
+                };
                 Ok(SessionSummaryRow {
                     session_id: row.get(0)?,
                     rower_id: row.get(1)?,
@@ -291,6 +322,83 @@ impl Store {
                     monitor_samples: row.get(3)?,
                     strokes: row.get(4)?,
                     last_distance_m: row.get(5)?,
+                    duration_s,
+                    avg_power_watts,
+                    kcal_pm: kcal(metrics::pm_kcal_per_hr),
+                    kcal_adjusted: weight_kg.and_then(|kg| {
+                        Some(metrics::workout_kcal(
+                            metrics::weight_adjusted_kcal_per_hr(avg_power_watts?, kg),
+                            duration_s?,
+                        ))
+                    }),
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// Athlete profile (single-row table, ADR 0012).
+    pub fn get_athlete(&self) -> Result<Option<AthleteProfile>, StoreError> {
+        let weight: Option<f32> = self
+            .conn
+            .query_row("SELECT weight_kg FROM athlete WHERE id = 1", [], |row| {
+                row.get(0)
+            })
+            .optional()?;
+        Ok(weight.map(|weight_kg| AthleteProfile { weight_kg }))
+    }
+
+    pub fn set_athlete(
+        &self,
+        profile: AthleteProfile,
+        updated_at: DateTime<Utc>,
+    ) -> Result<(), StoreError> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO athlete (id, weight_kg, updated_at) VALUES (1, ?, ?)",
+            params![profile.weight_kg, updated_at.to_rfc3339()],
+        )?;
+        Ok(())
+    }
+
+    /// Idempotent upsert of imported Logbook results (ADR 0013).
+    /// Returns how many were newly inserted.
+    pub fn upsert_logbook_results(&self, results: &[LogbookRow]) -> Result<u64, StoreError> {
+        let mut inserted = 0;
+        for r in results {
+            inserted += self.conn.execute(
+                "INSERT OR IGNORE INTO logbook_result
+                 (id, date, distance_m, duration_s, calories_total, stroke_rate, raw)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)",
+                params![
+                    r.id,
+                    r.date,
+                    r.distance_m,
+                    r.duration_s,
+                    r.calories_total,
+                    r.stroke_rate,
+                    r.raw,
+                ],
+            )? as u64;
+        }
+        Ok(inserted)
+    }
+
+    /// Imported Logbook results, newest first.
+    pub fn list_logbook_results(&self) -> Result<Vec<LogbookRow>, StoreError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, date, distance_m, duration_s, calories_total, stroke_rate, raw
+             FROM logbook_result ORDER BY date DESC",
+        )?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(LogbookRow {
+                    id: row.get(0)?,
+                    date: row.get(1)?,
+                    distance_m: row.get(2)?,
+                    duration_s: row.get(3)?,
+                    calories_total: row.get(4)?,
+                    stroke_rate: row.get(5)?,
+                    raw: row.get(6)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -583,6 +691,62 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].intent, "core");
         assert_eq!(rows[0].split_in_band, 1.0);
+    }
+
+    #[test]
+    fn athlete_profile_round_trips_and_unlocks_adjusted_calories() {
+        let store = Store::open_in_memory().unwrap();
+        assert_eq!(store.get_athlete().unwrap(), None);
+
+        store.ingest_workout_event("erg-1", &event_env(0)).unwrap();
+        for seq in 1..=5 {
+            store.ingest_monitor("erg-1", &monitor_env(seq)).unwrap();
+        }
+
+        // No weight set: PM calories present, adjusted honestly null.
+        let row = &store.session_summaries().unwrap()[0];
+        assert!(row.kcal_pm.unwrap() > 0.0);
+        assert_eq!(row.kcal_adjusted, None);
+
+        let now = Utc.with_ymd_and_hms(2026, 6, 11, 8, 0, 0).unwrap();
+        store
+            .set_athlete(AthleteProfile { weight_kg: 90.0 }, now)
+            .unwrap();
+        assert_eq!(
+            store.get_athlete().unwrap(),
+            Some(AthleteProfile { weight_kg: 90.0 })
+        );
+        // Upsert replaces, not duplicates.
+        store
+            .set_athlete(AthleteProfile { weight_kg: 88.0 }, now)
+            .unwrap();
+        assert_eq!(
+            store.get_athlete().unwrap(),
+            Some(AthleteProfile { weight_kg: 88.0 })
+        );
+
+        // 88 kg > 79.4 kg reference ⇒ adjusted burns more than PM shows.
+        let row = &store.session_summaries().unwrap()[0];
+        assert!(row.kcal_adjusted.unwrap() > row.kcal_pm.unwrap());
+    }
+
+    #[test]
+    fn logbook_upsert_is_idempotent() {
+        let store = Store::open_in_memory().unwrap();
+        let rows = vec![LogbookRow {
+            id: 99,
+            date: "2026-06-10 18:00:00".into(),
+            distance_m: Some(10_000.0),
+            duration_s: Some(2400.0),
+            calories_total: Some(700),
+            stroke_rate: Some(20),
+            raw: "{}".into(),
+        }];
+        assert_eq!(store.upsert_logbook_results(&rows).unwrap(), 1);
+        assert_eq!(store.upsert_logbook_results(&rows).unwrap(), 0);
+        let stored = store.list_logbook_results().unwrap();
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored[0].calories_total, Some(700));
     }
 
     #[test]

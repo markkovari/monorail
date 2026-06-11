@@ -8,18 +8,9 @@
 
 use crate::FeasibilityJudge;
 
-/// Concept2 pace↔power relation constant: `watts = 2.80 / (s/m)³`.
-const C2_PACE_CUBE: f64 = 2.80;
-
-/// Convert watts to split (seconds per 500 m).
-pub fn watts_to_split_s(watts: f64) -> f64 {
-    (C2_PACE_CUBE / watts).cbrt() * 500.0
-}
-
-/// Convert split (seconds per 500 m) to watts.
-pub fn split_s_to_watts(split_s: f64) -> f64 {
-    C2_PACE_CUBE / (split_s / 500.0).powi(3)
-}
+// Pace↔power relations live with the other Concept2 metrics (ADR 0012);
+// re-exported here so this module's API is unchanged.
+pub use monorail_core::metrics::{split_s_to_watts, watts_to_split_s};
 
 /// Fitted critical-power model.
 #[derive(Debug, Clone, PartialEq)]
@@ -119,15 +110,6 @@ mod tests {
             CriticalPowerModel::fit(&[(30.0, 400.0), (60.0, 350.0)]),
             None
         );
-    }
-
-    #[test]
-    fn pace_power_relation_round_trips() {
-        // Canonical Concept2 point: 2:00/500m ≈ 203 W.
-        assert!((split_s_to_watts(120.0) - 202.5).abs() < 1.0);
-        assert!((watts_to_split_s(202.5) - 120.0).abs() < 0.1);
-        let w = split_s_to_watts(watts_to_split_s(250.0));
-        assert!((w - 250.0).abs() < 1e-6);
     }
 
     #[test]

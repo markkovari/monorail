@@ -16,6 +16,8 @@ JetStream → DuckDB → predictions → coached workout programs.
 | [0009](0009-workout-programs-and-coaching.md) | Workout programs: goal-driven plan generation | Accepted |
 | [0010](0010-command-plane-pm5-programming.md) | Command plane: pushing plans to Pi, programming PM5 | Accepted |
 | [0011](0011-web-frontend-leptos.md) | Web frontend: Leptos SPA + HTTP/SSE API on sink | Accepted |
+| [0012](0012-athlete-profile-weight-adjusted-calories.md) | Athlete profile and weight-adjusted calories | Accepted |
+| [0013](0013-concept2-logbook-import.md) | Concept2 Logbook (ErgData) import | Accepted |
 
 ## System sketch
 

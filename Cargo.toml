@@ -7,6 +7,7 @@ members = [
     "crates/monorail-store",
     "crates/monorail-predict",
     "crates/monorail-coach",
+    "crates/monorail-logbook",
     "crates/monorail-api",
     "bins/monorail-rower",
     "bins/monorail-sink",
@@ -20,6 +21,7 @@ default-members = [
     "crates/monorail-store",
     "crates/monorail-predict",
     "crates/monorail-coach",
+    "crates/monorail-logbook",
     "crates/monorail-api",
     "bins/monorail-rower",
     "bins/monorail-sink",
@@ -39,6 +41,7 @@ monorail-stream = { path = "crates/monorail-stream" }
 monorail-store = { path = "crates/monorail-store" }
 monorail-predict = { path = "crates/monorail-predict" }
 monorail-coach = { path = "crates/monorail-coach" }
+monorail-logbook = { path = "crates/monorail-logbook" }
 monorail-api = { path = "crates/monorail-api" }
 
 # external
@@ -61,6 +64,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 clap = { version = "4", features = ["derive", "env"] }
 hidapi = "2"
 duckdb = { version = "1", features = ["bundled"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 leptos = { version = "0.7", features = ["csr"] }
 console_error_panic_hook = "0.1"
 wasm-bindgen = "0.2"
