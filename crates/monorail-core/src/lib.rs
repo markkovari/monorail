@@ -5,6 +5,7 @@
 //! I/O dependencies — `serde`, `uuid`, `chrono` only — so it compiles for
 //! the Pi target and for wasm32 (the Leptos UI) alike.
 
+pub mod api;
 pub mod ids;
 pub mod metrics;
 pub mod plan;
